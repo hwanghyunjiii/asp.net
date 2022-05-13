@@ -1,6 +1,9 @@
 ﻿using System;
+using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
 using System.Net;
+using System.Reflection;
 using System.Text;
 
 namespace WebApplication.Views.Http
@@ -17,10 +20,10 @@ namespace WebApplication.Views.Http
         /// </summary>
         /// <param name="url"></param>
         /// <param name="request"></param>
-        /// <param name="method"></param>
+        /// <param name="methodType"></param>
         /// <param name="headerKey"></param>
         /// <param name="headerValue"></param>
-        private void WebRequest(string url, string request, string method, string headerKey, string headerValue) 
+        private void WebRequest(string url, Dictionary<string, string> headers, string request, MethodType methodType = MethodType.Post, ContentType contentType = Http.ContentType.Json) 
         {
             HttpWebRequest httpWebRequest   = null;
             HttpWebResponse httpWebResponse = null;
@@ -37,55 +40,66 @@ namespace WebApplication.Views.Http
 
             try
             {
+                //System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)768 | (System.Net.SecurityProtocolType)3072;    // Framework 2.0
+                //System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls12; // Framework 4.0
+
                 // get 방식
-                if (method.ToLower().Equals("get"))
+                if (methodType.Equals(MethodType.Get))
                 {
-                    httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url + "?" + request);
-                    httpWebRequest.Method = WebRequestMethods.Http.Get;
-                    httpWebRequest.ContentType = "application/json";
-                    if (!string.IsNullOrEmpty(headerKey))
+                    if (!string.IsNullOrEmpty(request))
                     {
-                        // header 추가
-                        httpWebRequest.Headers.Add(headerKey, headerValue);
+                        url = string.Format("{0}{1}{2}", url, request.IndexOf("?") == -1 ? "?" : "&", request);
                     }
+                    httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url);
+                    httpWebRequest.Method = WebRequestMethods.Http.Get;
                 }
                 else
                 {
                     bytes = Encoding.UTF8.GetBytes(request);
-
                     httpWebRequest = (HttpWebRequest)HttpWebRequest.Create(url);
                     httpWebRequest.KeepAlive = false;
-                    httpWebRequest.Method = WebRequestMethods.Http.Post;
                     httpWebRequest.ContentLength = bytes.Length;
 
-                    if (!string.IsNullOrEmpty(headerKey))
+                    switch (methodType)
                     {
-                        // header 추가
-                        httpWebRequest.Headers.Add(headerKey, headerValue);
+                        case MethodType.Post:
+                            httpWebRequest.Method = WebRequestMethods.Http.Post;
+                            break;
+                        case MethodType.Put:
+                            httpWebRequest.Method = WebRequestMethods.Http.Put;
+                            break;
+                        case MethodType.Delete:
+                            httpWebRequest.Method = "DELETE";
+                            break;
+                        default:
+                            httpWebRequest.Method = WebRequestMethods.Http.Post;
+                            break;
                     }
+                }
 
-                    // method 에 따른 contentType 지정
-                    // contentType 도 파라미터로 받아서 처리하도록 수정 필요
-                    if (method.ToLower().Equals("post"))
-                    {
-                        httpWebRequest.ContentType = "application/json";
-                    }
-                    else if (method.ToLower().Equals("soap"))
-                    {
-                        httpWebRequest.ContentType = "application/soap+xml; charset=utf-8";
-                    }
-                    else
-                    {
-                        httpWebRequest.ContentType = "application/x-www-form-urlencoded";
-                    }
+                // method 에 따른 contentType 설정
+                httpWebRequest.ContentType = GetEnumDescription(contentType);
 
+                // header 설정
+                if (headers.Count > 0)
+                {
+                    foreach (KeyValuePair<string, string> kvp in headers)
+                    {
+                        //httpWebRequest.Headers.Add(kvp.Key, kvp.Value);
+                        httpWebRequest.Headers[kvp.Key] = kvp.Value;
+                    }
+                }
+
+                if (methodType.Equals("post") || methodType.Equals("put"))
+                {
                     // get 방식에서는 GetRequestStream() 호출하지 않음
-                    stream = httpWebRequest.GetRequestStream(); 
+                    stream = httpWebRequest.GetRequestStream();
                     stream.Write(bytes, 0, bytes.Length);
                     stream.Close();
                 }
 
                 httpWebRequest.Timeout = 60000;
+
 
                 // response 받기
                 httpWebResponse = (HttpWebResponse)httpWebRequest.GetResponse();
@@ -109,7 +123,7 @@ namespace WebApplication.Views.Http
             }
             catch(WebException webEx)
             {
-                returnCode = 999;
+                returnCode = 998;
                 returnMessage = webEx.Message;
 
                 using (Stream data = webEx.Response.GetResponseStream())
@@ -117,6 +131,11 @@ namespace WebApplication.Views.Http
                 {
                     response = reader.ReadToEnd();
                 }
+            }
+            catch(Exception ex)
+            {
+                returnCode = 999;
+                returnMessage = ex.Message;
             }
             finally
             {
@@ -137,5 +156,57 @@ namespace WebApplication.Views.Http
         {
 
         }
+
+        /// <summary>
+        /// GetEnumDescription
+        /// </summary>
+        /// <param name="value"></param>
+        /// <returns></returns>
+        private string GetEnumDescription(Enum value)
+        {
+            FieldInfo fi = value.GetType().GetField(value.ToString());
+
+            DescriptionAttribute[] attributes =
+                (DescriptionAttribute[])fi.GetCustomAttributes(
+                typeof(DescriptionAttribute),
+                false);
+
+            if (attributes != null &&
+                attributes.Length > 0)
+                return attributes[0].Description;
+            else
+                return value.ToString();
+        }
     }
+
+
+    #region Method Type
+    public enum MethodType
+    {
+        Get,   // Used when the client is requesting a resource on the Web server
+        Post,  // Used when the client is sending information or data to the server—for example, filling out an online form (i.e. Sends a large amount of complex data to the Web Server)
+        Put,   // Used when the client is sending a replacement document or uploading a new document to the Web server under the request URL
+        Delete // Used when the client is trying to delete a document from the Web server, identified by the request URL
+    }
+    #endregion
+
+    #region Content Type
+    public enum ContentType
+    {
+        [Description("")]
+        None,
+        [Description("application/x-www-form-urlencoded")]
+        Form,
+        [Description("application/json")]
+        Json,
+        [Description("application/xml")]
+        Xml,
+        [Description("text/plain")]
+        Text,
+        [Description("text/html")]
+        Html,
+        [Description("application/soap+xml; charset=utf-8")]
+        Soap
+    }
+    #endregion
 }
