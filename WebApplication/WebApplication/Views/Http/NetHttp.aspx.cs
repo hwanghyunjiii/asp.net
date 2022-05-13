@@ -5,6 +5,7 @@ using System.IO;
 using System.Net;
 using System.Reflection;
 using System.Text;
+using System.Web;
 
 namespace WebApplication.Views.Http
 {
@@ -41,7 +42,7 @@ namespace WebApplication.Views.Http
             try
             {
                 //System.Net.ServicePointManager.SecurityProtocol |= (System.Net.SecurityProtocolType)768 | (System.Net.SecurityProtocolType)3072;    // Framework 2.0
-                //System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls12; // Framework 4.0
+                //System.Net.ServicePointManager.SecurityProtocol |= System.Net.SecurityProtocolType.Tls11 | System.Net.SecurityProtocolType.Tls12;   // Framework 4.0
 
                 // get 방식
                 if (methodType.Equals(MethodType.Get))
@@ -158,7 +159,7 @@ namespace WebApplication.Views.Http
         }
 
         /// <summary>
-        /// GetEnumDescription
+        /// enum description 조회
         /// </summary>
         /// <param name="value"></param>
         /// <returns></returns>
@@ -177,16 +178,62 @@ namespace WebApplication.Views.Http
             else
                 return value.ToString();
         }
+
+
+        /// <summary>
+        /// object 를 string 으로 변환
+        /// </summary>
+        /// <param name="data"></param>
+        /// <param name="separator"></param>
+        /// <param name="isUrlencode"></param>
+        /// <returns></returns>
+        private static string ConvertObjectToString(object data, string separator, bool isUrlencode)
+        {
+            string strData = string.Empty;
+            string strName = string.Empty;
+            string strValue = string.Empty;
+
+            StringBuilder sb = null;
+            Type objType = null;
+
+            try
+            {
+                sb = new StringBuilder();
+                objType = data.GetType();
+
+                foreach (PropertyInfo propertyInfo in objType.GetProperties())
+                {
+                    strName = propertyInfo.Name;
+                    strValue = isUrlencode ? HttpUtility.UrlEncode(propertyInfo.GetValue(data, null).ToString()) : propertyInfo.GetValue(data, null).ToString();
+
+                    if (sb.Length.Equals(0))
+                    {
+                        sb.AppendFormat("{0}={1}", strName, strValue);
+                    }
+                    else
+                    {
+                        sb.AppendFormat("{0}{1}={2}", separator, strName, strValue);
+                    }
+                }
+
+                strData = sb.ToString();
+            }
+            catch (Exception ex)
+            {
+                strData = ex.Message;
+            }
+            return strData;
+        }
     }
 
 
     #region Method Type
     public enum MethodType
     {
-        Get,   // Used when the client is requesting a resource on the Web server
-        Post,  // Used when the client is sending information or data to the server—for example, filling out an online form (i.e. Sends a large amount of complex data to the Web Server)
-        Put,   // Used when the client is sending a replacement document or uploading a new document to the Web server under the request URL
-        Delete // Used when the client is trying to delete a document from the Web server, identified by the request URL
+        Get,
+        Post,
+        Put,
+        Delete
     }
     #endregion
 
